@@ -1,4 +1,0 @@
-IR=000000 PC=0 A=1 B=1 S=0 Vai-um=0
-IR=010000 PC=1 A=1 B=1 S=0 Vai-um=0
-IR=101000 PC=2 A=1 B=1 S=1 Vai-um=0
-IR=111000 PC=3 A=1 B=1 S=1 Vai-um=0
