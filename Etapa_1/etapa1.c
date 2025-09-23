@@ -1,100 +1,117 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
-typedef struct {
-    int F0, F1, ENA, ENB, INVA, INC;
-} Instrucao;
-
-Instrucao parse_instr(const char *line) {
-    Instrucao inst;
-    inst.F0   = line[0] - '0';
-    inst.F1   = line[1] - '0';
-    inst.ENA  = line[2] - '0';
-    inst.ENB  = line[3] - '0';
-    inst.INVA = line[4] - '0';
-    inst.INC  = line[5] - '0';
-    return inst;
+// Imprimir inteiro de 32 bits em binário
+void print_bin32(FILE *out, int32_t val) {
+    for (int i = 31; i >= 0; i--) {
+        fprintf(out, "%d", (val >> i) & 1);
+    }
 }
 
-void full_adder(int a, int b, int cin, int *s, int *cout) {
-    *s = (a ^ b) ^ cin;
-    *cout = (a & b) | (cin & (a ^ b));
-}
+// Função da ULA
+void ula(int32_t A, int32_t B, int instrucao[6], int32_t *S, int *carry) {
+    int F0 = instrucao[0];
+    int F1 = instrucao[1];
+    int ENA = instrucao[2];
+    int ENB = instrucao[3];
+    int INVA = instrucao[4];
+    int INC  = instrucao[5];
 
-void execute_instr(Instrucao inst, int A, int B, int vem_um, int *S, int *vai_um) {
-    int a_in = inst.ENA ? A : 0;
-    if (inst.INVA) a_in = 1 - a_in;
-    int b_in = inst.ENB ? B : 0;
-    int cin = (vem_um || inst.INC) ? 1 : 0;
+    // Habilita entradas
+    int32_t a_val = ENA ? A : 0;
+    int32_t b_val = ENB ? B : 0;
 
-    int f = (inst.F0 << 1) | inst.F1;
+    // Inverte A se necessário
+    if (INVA) {
+        a_val = ~a_val;
+    }
 
-    switch (f) {
-        case 0b00:
-            *S = a_in & b_in;
-            *vai_um = 0;
-            break;
-        case 0b01:
-            *S = a_in | b_in;
-            *vai_um = 0;
-            break;
-        case 0b10: 
-            full_adder(a_in, b_in, cin, S, vai_um);
-            break;
-        case 0b11:
-            full_adder(a_in, b_in, cin, S, vai_um);
-            break;
-        default:
-            *S = 0;
-            *vai_um = 0;
+    // Operação base
+    *carry = 0;
+    if (F0 == 0 && F1 == 0) {
+        *S = a_val & b_val;          // AND
+    } else if (F0 == 0 && F1 == 1) {
+        *S = a_val | b_val;          // OR
+    } else if (F0 == 1 && F1 == 0) {
+        *S = a_val ^ b_val;          // XOR
+    } else if (F0 == 1 && F1 == 1) {
+        int64_t tmp = (int64_t)a_val + (int64_t)b_val;
+        *S = (int32_t)tmp;
+        if (tmp > 0x7FFFFFFF || tmp < (int64_t)0xFFFFFFFF80000000) {
+            *carry = 1;
+        }
+    }
+
+    // Incremento (vem-um forçado)
+    if (INC) {
+        int64_t tmp = (int64_t)(*S) + 1;
+        *S = (int32_t)tmp;
+        if (tmp > 0x7FFFFFFF || tmp < (int64_t)0xFFFFFFFF80000000) {
+            *carry = 1;
+        }
     }
 }
 
 int main() {
+    FILE *entrada = fopen("programa_etapa1.txt", "r");
+    FILE *saida   = fopen("saida_etapa1.txt", "w");
 
-    char input_file[] = "programa_etapa1.txt";
-    char output_file[] = "saida_etapa1.txt";
-
-
-    int A = 1, B = 1;
-    int PC = 0;
-    int vem_um = 0;
-
-
-    FILE *fin = fopen(input_file, "r");
-    if (!fin) {
-        printf("Erro: nao consegui abrir o arquivo de entrada '%s'.\n", input_file);
-        printf("Certifique-se de que ele esta na mesma pasta do executavel.\n");
+    if (!entrada || !saida) {
+        printf("Erro ao abrir arquivos!\n");
         return 1;
     }
 
-    FILE *fout = fopen(output_file, "w");
-    if (!fout) {
-        printf("Erro: nao consegui criar o arquivo de saida '%s'.\n", output_file);
-        fclose(fin);
-        return 1;
-    }
+    char linha[20];
+    int PC = 1; // começa em 1 como no exemplo
 
-    char line[64];
-    while (fgets(line, sizeof(line), fin)) {
-        if (strlen(line) < 6) continue;
-        line[strcspn(line, "\r\n")] = 0; 
+    // Valores fixos
+    int32_t A = -1; // 11111111111111111111111111111111
+    int32_t B = 1;  // 00000000000000000000000000000001
 
-        Instrucao inst = parse_instr(line);
-        int S, vai_um;
-        execute_instr(inst, A, B, vem_um, &S, &vai_um);
+    fprintf(saida, "b = "); print_bin32(saida, B); fprintf(saida, "\n");
+    fprintf(saida, "a = "); print_bin32(saida, A); fprintf(saida, "\n\n");
 
-        fprintf(fout, "IR=%s PC=%d A=%d B=%d S=%d Vai-um=%d\n",
-                line, PC, A, B, S, vai_um);
+    fprintf(saida, "Start of Program\n");
+    fprintf(saida, "============================================================\n");
 
-        vem_um = vai_um;
+    int ciclo = 1;
+    while (fgets(linha, sizeof(linha), entrada)) {
+        if (strlen(linha) < 6) break; // ignora linha vazia
+
+        int instrucao[6];
+        for (int i = 0; i < 6; i++) {
+            instrucao[i] = linha[i] - '0';
+        }
+
+        int32_t S;
+        int carry;
+        ula(A, B, instrucao, &S, &carry);
+
+        fprintf(saida, "Cycle %d\n\n", ciclo);
+        fprintf(saida, "PC = %d\n", PC);
+        fprintf(saida, "IR = ");
+        for (int i = 0; i < 6; i++) fprintf(saida, "%d", instrucao[i]);
+        fprintf(saida, "\n");
+
+        fprintf(saida, "b = "); print_bin32(saida, B); fprintf(saida, "\n");
+        fprintf(saida, "a = "); print_bin32(saida, A); fprintf(saida, "\n");
+        fprintf(saida, "s = "); print_bin32(saida, S); fprintf(saida, "\n");
+        fprintf(saida, "co = %d\n", carry);
+        fprintf(saida, "============================================================\n");
+
         PC++;
+        ciclo++;
     }
 
-    fclose(fin);
-    fclose(fout);
+    fprintf(saida, "Cycle %d\n\n", ciclo);
+    fprintf(saida, "PC = %d\n", PC);
+    fprintf(saida, "> Line is empty, EOP.\n");
 
-    printf("Simulacao concluida.\nArquivo de saida criado: %s\n", output_file);
+    fclose(entrada);
+    fclose(saida);
+
+    printf("Execução concluída. Veja saida_etapa1.txt\n");
     return 0;
 }
