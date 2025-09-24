@@ -1,113 +1,153 @@
 #include <stdio.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <stdint.h>
 
-// Estrutura para os sinais de controle
 typedef struct {
-    int F0, F1, ENA, ENB, INVA, INC;
-} ControlSignals;
+    uint32_t S;     // sa�da antes do deslocamento
+    uint32_t Sd;    // sa�da final
+    int carry;      // vai-um
+    int N;          // negativo (bit 31)
+    int Z;          // zero
+    int error;      // erro de sinais de controle
+} ULAOut;
 
-// Função da ULA
-void ula(uint32_t A, uint32_t B, ControlSignals ctrl, uint32_t *S, int *carry_out) {
-    uint32_t a = ctrl.ENA ? A : 0;
-    uint32_t b = ctrl.ENB ? B : 0;
-    if (ctrl.INVA) a = ~a;
-
-    uint64_t result = 0;
-
-    // Seleção de operação
-    if (ctrl.F0 == 0 && ctrl.F1 == 0) result = a & b;
-    else if (ctrl.F0 == 0 && ctrl.F1 == 1) result = a | b;
-    else if (ctrl.F0 == 1 && ctrl.F1 == 0) result = (uint64_t)a + b;
-    else if (ctrl.F0 == 1 && ctrl.F1 == 1) result = (uint64_t)a + b;
-
-
-    if (ctrl.INC) result += 1;
-
-    *S = (uint32_t)result;
-    *carry_out = (result >> 32) & 1;
+void to_binary32(uint32_t x, char *out) {
+    for (int i = 31; i >= 0; --i)
+        out[31 - i] = (x >> i) & 1 ? '1' : '0';
+    out[32] = '\0';
 }
 
-// Função para decodificar instrução de 6 bits
-ControlSignals decode_instruction(const char *instr) {
-    ControlSignals ctrl;
-    ctrl.F0   = instr[0] - '0';
-    ctrl.F1   = instr[1] - '0';
-    ctrl.ENA  = instr[2] - '0';
-    ctrl.ENB  = instr[3] - '0';
-    ctrl.INVA = instr[4] - '0';
-    ctrl.INC  = instr[5] - '0';
-    return ctrl;
-}
-
-// Função auxiliar para imprimir binário de 32 bits
-void print32(FILE *f, uint32_t value) {
-    for (int i = 31; i >= 0; i--)
-        fputc((value & (1u << i)) ? '1' : '0', f);
-    fputc('\n', f);
-}
-
-// Função para "normalizar" o IR (para bater com saída do professor)
-void normalize_ir(char *instr, int pc) {
-    if (pc == 1 && strcmp(instr, "111110") == 0) {
-        instr[4] = '0'; // desliga INVA
-        instr[5] = '0'; // desliga INC (só para garantir)
+static int parse_binary8(const char *s) {
+    int v = 0;
+    for (int i = 0; s[i] && i < 8; ++i) {
+        if (s[i] == '0' || s[i] == '1')
+            v = (v << 1) | (s[i] - '0');
     }
+    return v;
+}
+
+ULAOut ula_exec(uint32_t A, uint32_t B, unsigned char control) {
+    ULAOut out = {0};
+
+    int SLL8 = (control >> 7) & 1;
+    int SRA1 = (control >> 6) & 1;
+    int F0   = (control >> 5) & 1;
+    int F1   = (control >> 4) & 1;
+    int ENA  = (control >> 3) & 1;
+    int ENB  = (control >> 2) & 1;
+    int INVA = (control >> 1) & 1;
+    int INC  = (control >> 0) & 1;
+
+    if (SLL8 && SRA1) {
+        out.error = 1;
+        return out;
+    }
+
+    uint32_t a = ENA ? A : 0;
+    uint32_t b = ENB ? B : 0;
+    if (INVA) a = ~a;
+
+    int op = (F0 << 1) | F1;
+
+    if (op == 2) { // soma
+        uint64_t sum = (uint64_t)a + (uint64_t)b + (INC ? 1u : 0u);
+        out.S = (uint32_t)sum;
+        out.carry = (sum >> 32) & 1u;
+    } else {
+        switch (op) {
+            case 0: out.S = a & b; break;
+            case 1: out.S = a | b; break;
+            case 3: out.S = a ^ b; break;
+        }
+        if (INC) out.S = out.S + 1u;
+        out.carry = 0;
+    }
+
+    out.Sd = out.S;
+    if (SLL8) {
+        out.Sd = (out.S << 8) & 0xFFFFFFFFu;
+    } else if (SRA1) {
+        int32_t tmp = (int32_t)out.S;
+        out.Sd = (uint32_t)(tmp >> 1);
+    }
+
+    // Corrigido: N agora depende de Sd, n�o S
+    out.N = (out.Sd >> 31) & 1;
+    out.Z = (out.Sd == 0);
+
+    return out;
 }
 
 int main() {
-    FILE *programa = fopen("programa_etapa1.txt", "r");
-    FILE *saida = fopen("saida_etapa1.txt", "w");
-    if (!programa || !saida) {
-        printf("Erro ao abrir arquivos.\n");
+    FILE *fin = fopen("programa_etapa2_tarefa1.txt", "r");
+    FILE *fout = fopen("saida_etapa2_tarefa1.txt", "w");
+    if (!fin || !fout) {
+        fprintf(stderr, "Erro abrindo arquivos.\n");
         return 1;
     }
 
-    uint32_t A = 0xFFFFFFFF; // inicial
-    uint32_t B = 0x00000001;
-    uint32_t S;
-    int carry_out;
-    char linha[16];
-    int PC = 1;
+    uint32_t A = 0x00000001;
+    uint32_t B = 0x80000000;
 
-    // Cabeçalho inicial
-    fprintf(saida, "b = "); print32(saida, B);
-    fprintf(saida, "a = "); print32(saida, A);
-    fprintf(saida, "\nStart of Program\n");
-    fprintf(saida, "============================================================\n");
+    char linha[256];
+    int PC = 0;
 
-    while (fgets(linha, sizeof(linha), programa)) {
-        linha[strcspn(linha, "\r\n")] = 0; // remove \n
-        if (strlen(linha) == 0) break; // fim do programa
+    fprintf(fout, "Start of Program\n============================================================\n");
 
-        normalize_ir(linha, PC); // ajusta IR se for o caso
-        ControlSignals ctrl = decode_instruction(linha);
-        ula(A, B, ctrl, &S, &carry_out);
+    while (1) {
+        PC++; // PC come�a em 1
+        fprintf(fout, "Cycle %d\n\n", PC);
 
-        fprintf(saida, "Cycle %d\n\n", PC);
-        fprintf(saida, "PC = %d\n", PC);
-        fprintf(saida, "IR = %s\n", linha);
+        if (!fgets(linha, sizeof(linha), fin)) {
+            // Arquivo acabou ? imprime PC + EOP
+            fprintf(fout, "PC = %d\n", PC);
+            fprintf(fout, "> Line is empty, EOP.\n");
+            fprintf(fout, "============================================================\n");
+            break;
+        }
 
-        fprintf(saida, "b = "); print32(saida, B);
-        fprintf(saida, "a = "); print32(saida, A);
-        fprintf(saida, "s = "); print32(saida, S);
-        fprintf(saida, "co = %d\n", carry_out);
-        fprintf(saida, "============================================================\n");
+        // limpar espa�os
+        int len = strlen(linha);
+        while (len > 0 && isspace((unsigned char)linha[len-1])) linha[--len] = '\0';
 
-        // Força mudanças em A para bater com exemplo do professor
-        if (PC == 2) A = 0x00000000;      // A = 0 antes do próximo ciclo
-        else if (PC == 3) A = 0xFFFFFFFF; // A volta a ser 1s
+        if (len == 0) {
+            fprintf(fout, "PC = %d\n", PC);
+            fprintf(fout, "> Line is empty, EOP.\n");
+            fprintf(fout, "============================================================\n");
+            continue;
+        }
 
-        PC++;
+        int control = parse_binary8(linha);
+        ULAOut out = ula_exec(A, B, (unsigned char)control);
+
+        fprintf(fout, "PC = %d\n", PC);
+        fprintf(fout, "IR = %s\n", linha);
+
+        if (out.error) {
+            // Apenas PC + IR + mensagem de erro
+            fprintf(fout, "> Error, invalid control signals.\n");
+        } else {
+            char binA[33], binB[33], binS[33], binSd[33];
+            to_binary32(A, binA);
+            to_binary32(B, binB);
+            to_binary32(out.S, binS);
+            to_binary32(out.Sd, binSd);
+
+            fprintf(fout, "b = %s\n", binB);
+            fprintf(fout, "a = %s\n", binA);
+            fprintf(fout, "s = %s\n", binS);
+            fprintf(fout, "sd = %s\n", binSd);
+            fprintf(fout, "n = %d\n", out.N);
+            fprintf(fout, "z = %d\n", out.Z);
+            fprintf(fout, "co = %d\n", out.carry);
+        }
+
+        fprintf(fout, "============================================================\n");
     }
 
-    fprintf(saida, "Cycle %d\n\n", PC);
-    fprintf(saida, "PC = %d\n> Line is empty, EOP.\n", PC);
-
-    fclose(programa);
-    fclose(saida);
-
-    printf("Execução concluída. Veja saida_etapa1.txt\n");
+    fclose(fin);
+    fclose(fout);
     return 0;
 }
