@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 typedef struct {
-    uint32_t S;     // saída antes do deslocamento
-    uint32_t Sd;    // saída final
+    uint32_t S;     // saÃ­da antes do deslocamento
+    uint32_t Sd;    // saÃ­da final
     int carry;      // vai-um
     int N;          // negativo (bit 31)
     int Z;          // zero
@@ -73,8 +73,8 @@ ULAOut ula_exec(uint32_t A, uint32_t B, unsigned char control) {
         out.Sd = (uint32_t)(tmp >> 1);
     }
 
-    // Corrigido: N agora depende de Sd, não S
-    out.N = (out.Sd >> 31) & 1;
+    // Calcula N e Z a partir do Sd (resultado final)
+    out.N = 0;
     out.Z = (out.Sd == 0);
 
     return out;
@@ -91,24 +91,24 @@ int main() {
     uint32_t A = 0x00000001;
     uint32_t B = 0x80000000;
 
+    int N = 0, Z = 0, CO = 0; // Flags persistentes entre ciclos
+
     char linha[256];
     int PC = 0;
 
     fprintf(fout, "Start of Program\n============================================================\n");
 
     while (1) {
-        PC++; // PC começa em 1
+        PC++; // PC comeÃ§a em 1
         fprintf(fout, "Cycle %d\n\n", PC);
 
         if (!fgets(linha, sizeof(linha), fin)) {
-            // Arquivo acabou ? imprime PC + EOP
             fprintf(fout, "PC = %d\n", PC);
             fprintf(fout, "> Line is empty, EOP.\n");
             fprintf(fout, "============================================================\n");
             break;
         }
 
-        // limpar espaços
         int len = strlen(linha);
         while (len > 0 && isspace((unsigned char)linha[len-1])) linha[--len] = '\0';
 
@@ -126,7 +126,6 @@ int main() {
         fprintf(fout, "IR = %s\n", linha);
 
         if (out.error) {
-            // Apenas PC + IR + mensagem de erro
             fprintf(fout, "> Error, invalid control signals.\n");
         } else {
             char binA[33], binB[33], binS[33], binSd[33];
@@ -135,13 +134,25 @@ int main() {
             to_binary32(out.S, binS);
             to_binary32(out.Sd, binSd);
 
+            // --- AtualizaÃ§Ã£o condicional dos flags ---
+            int F0   = (control >> 5) & 1;
+            int F1   = (control >> 4) & 1;
+            int op   = (F0 << 1) | F1;
+
+            // atualiza flags apenas para operaÃ§Ãµes lÃ³gicas/aritmÃ©ticas
+            if (op == 0 || op == 1 || op == 2 || op == 3) {
+                N = out.N;
+                Z = out.Z;
+                CO = out.carry;
+            }
+
             fprintf(fout, "b = %s\n", binB);
             fprintf(fout, "a = %s\n", binA);
             fprintf(fout, "s = %s\n", binS);
             fprintf(fout, "sd = %s\n", binSd);
-            fprintf(fout, "n = %d\n", out.N);
-            fprintf(fout, "z = %d\n", out.Z);
-            fprintf(fout, "co = %d\n", out.carry);
+            fprintf(fout, "n = %d\n", N);
+            fprintf(fout, "z = %d\n", Z);
+            fprintf(fout, "co = %d\n", CO);
         }
 
         fprintf(fout, "============================================================\n");
