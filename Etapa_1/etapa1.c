@@ -1,340 +1,244 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <ctype.h>
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <stdint.h> 
+#include <string.h> 
+#include <ctype.h> 
 
-/* -------------------- Tipos -------------------- */
-typedef struct {
-    uint32_t S;     // saída antes do deslocamento
-    uint32_t Sd;    // saída final
-    int carry;      // vai-um
-    int N;          // negativo (bit 31)
-    int Z;          // zero
-    int error;      // erro de sinais de controle
-} ULAOut;
+#define DADOS_FILE "dados_etapa3_tarefa1.txt" 
+#define MICRO_FILE "microinstrucoes_etapa3_tarefa1.txt" 
+#define REGS_FILE "registradores_etapa3_tarefa1.txt" 
+#define MICRO_FILE_ALT "microinstrucoes_etapa3_tarefa1" 
+#define IJVM_FILE "instrucoes_ijvm.txt" 
+#define LOG_FILE "log.txt" 
+#define MAX_LINE 512 
+#define MEM_LINES 16 
 
-/* -------------------- Registradores -------------------- */
-typedef struct {
-    uint32_t MAR, MDR, PC;
-    uint8_t  MBR;
-    uint32_t SP, LV, CPP, TOS, OPC, H;
-} Regs;
+typedef struct { 
+    uint32_t H, OPC, TOS, CPP, LV, SP, PC, MDR, MAR; 
+    uint8_t MBR; 
+} Regs; 
 
-Regs regs;
+Regs R; 
+uint32_t MEM[MEM_LINES]; 
+int cycle_number = 1; 
 
-/* -------------------- utilitários binários -------------------- */
-void to_bin32(uint32_t x, char *out) {
-    for (int i = 31; i >= 0; --i) out[31 - i] = ((x >> i) & 1) ? '1' : '0';
-    out[32] = '\0';
-}
-void to_bin8(uint8_t x, char *out) {
-    for (int i = 7; i >= 0; --i) out[7 - i] = ((x >> i) & 1) ? '1' : '0';
-    out[8] = '\0';
-}
-uint32_t parse_bin32(const char *s) {
-    uint32_t v = 0;
-    for (int i = 0; s[i] && (s[i] == '0' || s[i] == '1'); ++i) {
-        v = (v << 1) | (s[i] - '0');
+/* utils */ 
+void print_bin32(FILE *log, uint32_t v) { 
+    for (int i = 31; i >= 0; i--) 
+        fputc(((v >> i) & 1) ? '1' : '0', log); 
+    fputc('\n', log); 
+} 
+
+void print_bin8(FILE *log, uint8_t v) { 
+    for (int i = 7; i >= 0; i--) 
+        fputc(((v >> i) & 1) ? '1' : '0', log); 
+    fputc('\n', log); 
+} 
+
+void dump_regs(FILE *log, Regs *r) { 
+    fprintf(log, "mar = "); print_bin32(log, r->MAR); 
+    fprintf(log, "mdr = "); print_bin32(log, r->MDR); 
+    fprintf(log, "pc = ");  print_bin32(log, r->PC); 
+    fprintf(log, "mbr = "); print_bin8(log, r->MBR); 
+    fprintf(log, "sp = ");  print_bin32(log, r->SP); 
+    fprintf(log, "lv = ");  print_bin32(log, r->LV); 
+    fprintf(log, "cpp = "); print_bin32(log, r->CPP); 
+    fprintf(log, "tos = "); print_bin32(log, r->TOS); 
+    fprintf(log, "opc = "); print_bin32(log, r->OPC); 
+    fprintf(log, "h = ");   print_bin32(log, r->H); 
+} 
+
+/* conversores */ 
+uint32_t bin32_to_u32(const char *s) { 
+    uint32_t v=0; 
+    for(size_t i=0;s[i];i++) 
+        if(s[i]=='0'||s[i]=='1') v=(v<<1)|(s[i]-'0'); 
+    return v; 
+} 
+
+uint8_t bin_to_u8(const char *s) { 
+    uint8_t v=0; 
+    for(size_t i=0;s[i];i++) 
+        if(s[i]=='0'||s[i]=='1') v=(v<<1)|(s[i]-'0'); 
+    return v; 
+} 
+
+char *read_line_trim(FILE *f, char *buf, size_t n) { 
+    if (!fgets(buf,(int)n,f)) return NULL; 
+    size_t len=strlen(buf); 
+    while(len>0&&(buf[len-1]=='\n'||buf[len-1]=='\r')) buf[--len]='\0'; 
+    return buf; 
+} 
+
+/* pega parte depois do '=' */ 
+char* after_equal(char *s) { 
+    char *p=strchr(s,'='); 
+    if(p) { 
+        p++; 
+        while(*p && isspace((unsigned char)*p)) p++; 
+        return p; 
+    } 
+    return s; 
+} 
+
+/* decode B */ 
+uint32_t get_B_value_from_decoder(int code) { 
+    switch (code) { 
+        case 8: return R.OPC; 
+        case 7: return R.TOS; 
+        case 6: return R.CPP; 
+        case 5: return R.LV; 
+        case 4: return R.SP; 
+        case 3: return (uint32_t)R.MBR; 
+        case 2: { 
+            uint8_t b=R.MBR; 
+            return (b&0x80)?0xFFFFFF00U|b:(uint32_t)b; 
+        } 
+        case 1: return R.PC; 
+        case 0: return R.MDR; 
+        default: return 0; 
+    } 
+} 
+
+const char* get_B_name(int code) { 
+    switch (code) { 
+        case 8: return "opc"; 
+        case 7: return "tos"; 
+        case 6: return "cpp"; 
+        case 5: return "lv"; 
+        case 4: return "sp"; 
+        case 3: return "mbru"; 
+        case 2: return "mbr"; 
+        case 1: return "pc"; 
+        case 0: return "mdr"; 
+        default: return "?"; 
+    } 
+} 
+
+/* escreve Sd nos registradores habilitados */ 
+void write_C_destination(uint16_t sel9, uint32_t Sd) { 
+    if (sel9&(1<<8)) R.H=Sd; 
+    if (sel9&(1<<7)) R.OPC=Sd; 
+    if (sel9&(1<<6)) R.TOS=Sd; 
+    if (sel9&(1<<5)) R.CPP=Sd; 
+    if (sel9&(1<<4)) R.LV=Sd; 
+    if (sel9&(1<<3)) R.SP=Sd; 
+    if (sel9&(1<<2)) R.PC=Sd; 
+    if (sel9&(1<<1)) R.MDR=Sd; 
+    if (sel9&(1<<0)) R.MAR=Sd; 
+} 
+
+/* ULA */ 
+typedef struct { 
+    uint32_t Sd; 
+    int N; 
+    int Z; 
+} ULA_out; 
+
+ULA_out execute_ula(uint8_t c, uint32_t A, uint32_t B) { 
+    int SLL8=(c>>7)&1,SRA1=(c>>6)&1,F0=(c>>5)&1,F1=(c>>4)&1; 
+    int ENA=(c>>3)&1,ENB=(c>>2)&1,INVA=(c>>1)&1,INC=c&1; 
+    uint32_t a=ENA?A:0,b=ENB?B:0; 
+    if(INVA) a=~a; 
+    uint32_t Sd=0; 
+    int code=(F0<<1)|F1; 
+    if(code==0) Sd=b; 
+    else if(code==1) Sd=a; 
+    else if(code==2) Sd=a&b; 
+    else Sd=a+b+INC; 
+    if(SLL8) Sd<<=8; 
+    else if(SRA1) Sd=(uint32_t)((int32_t)Sd>>1); 
+    ULA_out o={Sd,((int32_t)Sd<0),Sd==0}; 
+    return o; 
+} 
+
+void format_ir_spaced(const char *m,char*out){ 
+    int pos=0;for(int i=0;i<8;i++)out[pos++]=m[i];out[pos++]=' '; 
+    for(int i=8;i<17;i++)out[pos++]=m[i];out[pos++]=' '; 
+    out[pos++]=m[17];out[pos++]=m[18];out[pos++]=' '; 
+    for(int i=19;i<23;i++)out[pos++]=m[i];out[pos]=0; 
+} 
+
+/* executar microinstr */ 
+int execute_microinstr(const char *m) { 
+    if(!m||strlen(m)<23) return 0; 
+    uint8_t ula=0;for(int i=0;i<8;i++) ula=(ula<<1)|(m[i]=='1'); 
+    uint16_t selC=0;for(int i=8;i<17;i++) selC=(selC<<1)|(m[i]=='1'); 
+    int WRITE=(m[17]=='1'),READ=(m[18]=='1'); 
+    int Bcode=0;for(int i=19;i<23;i++) Bcode=(Bcode<<1)|(m[i]=='1'); 
+    Regs before=R; 
+
+    // 1. Executa a lógica da ULA e atualiza os registradores primeiro
+    uint32_t Bval=get_B_value_from_decoder(Bcode); 
+    ULA_out uout=execute_ula(ula,before.H,Bval); // Usa o H de 'before'
+    write_C_destination(selC,uout.Sd); 
+
+    // 2. CORREÇÃO: Executa as operações de memória DEPOIS da ULA,
+    // usando os valores atualizados dos registradores
+    if (READ && R.MAR < MEM_LINES) {
+        R.MDR = MEM[R.MAR];
     }
-    return v;
-}
-uint8_t parse_bin8(const char *s) {
-    uint8_t v = 0;
-    for (int i = 0; s[i] && (s[i] == '0' || s[i] == '1'); ++i) {
-        v = (uint8_t)((v << 1) | (s[i] - '0'));
-    }
-    return v;
-}
-
-/* -------------------- Função ULA (seu núcleo) -------------------- */
-ULAOut ula_exec(uint32_t A, uint32_t B, unsigned char control) {
-    ULAOut out = {0};
-
-    int SLL8 = (control >> 7) & 1;
-    int SRA1 = (control >> 6) & 1;
-    int F0   = (control >> 5) & 1;
-    int F1   = (control >> 4) & 1;
-    int ENA  = (control >> 3) & 1;
-    int ENB  = (control >> 2) & 1;
-    int INVA = (control >> 1) & 1;
-    int INC  = (control >> 0) & 1;
-
-    if (SLL8 && SRA1) {
-        out.error = 1;
-        return out;
-    }
-
-    uint32_t a = ENA ? A : 0;
-    uint32_t b = ENB ? B : 0;
-    if (INVA) a = ~a;
-
-    int op = (F0 << 1) | F1;
-
-    if (op == 2) { // soma
-        uint64_t sum = (uint64_t)a + (uint64_t)b + (INC ? 1u : 0u);
-        out.S = (uint32_t)sum;
-        out.carry = (int)((sum >> 32) & 1u);
-    } else {
-        switch (op) {
-            case 0: out.S = a & b; break;
-            case 1: out.S = a | b; break;
-            case 3: out.S = a ^ b; break;
-            default: out.S = 0; break;
-        }
-        if (INC) out.S = out.S + 1u;
-        out.carry = 0;
-    }
-
-    out.Sd = out.S;
-    if (SLL8) out.Sd = (out.S << 8);
-    else if (SRA1) {
-        int32_t t = (int32_t)out.S;
-        out.Sd = (uint32_t)(t >> 1);
-    }
-
-    out.N = (int)((out.Sd >> 31) & 1u);
-    out.Z = (out.Sd == 0);
-
-    return out;
-}
-
-/* -------------------- Decodificador B (4 bits -> reg) --------------------
-   Convenção de nomes para impressão:
-   8 OPC,7 TOS,6 CPP,5 LV,4 SP,3 MBRU,2 MBR,1 PC,0 MDR
-   Atenção: para reproduzir exatamente o log que você mandou,
-   estou usando MBR (code 2) como ZERO-EXTEND e MBRU (code 3) como SIGN-EXTEND,
-   que é o comportamento observado no seu exemplo.
-   Se quiser que eu volte ao comportamento do enunciado, aviso e altero.
----------------------------------------------------------------------*/
-uint32_t get_B_value_and_name(int code, char *name_out) {
-    switch (code) {
-        case 8: strcpy(name_out, "opc");  return regs.OPC;
-        case 7: strcpy(name_out, "tos");  return regs.TOS;
-        case 6: strcpy(name_out, "cpp");  return regs.CPP;
-        case 5: strcpy(name_out, "lv");   return regs.LV;
-        case 4: strcpy(name_out, "sp");   return regs.SP;
-        case 3: /* MBRU */ strcpy(name_out, "mbru");
-                { /* SIGN-EXTEND (note: isto reproduz seu exemplo) */
-                    int8_t s = (int8_t)regs.MBR;
-                    return (uint32_t)(int32_t)s;
-                }
-        case 2: /* MBR  */ strcpy(name_out, "mbr");
-                { /* ZERO-EXTEND (note: isto reproduz seu exemplo) */
-                    return (uint32_t)regs.MBR;
-                }
-        case 1: strcpy(name_out, "pc");   return regs.PC;
-        case 0: strcpy(name_out, "mdr");  return regs.MDR;
-        default: strcpy(name_out, "none"); return 0;
-    }
-}
-
-/* -------------------- Escrita C (9 bits -> vários regs) --------------------
-   Bits: 8 H,7 OPC,6 TOS,5 CPP,4 LV,3 SP,2 PC,1 MDR,0 MAR
----------------------------------------------------------------------*/
-void write_C_regs(int mask9, uint32_t value) {
-    if (mask9 & (1 << 8)) regs.H   = value;
-    if (mask9 & (1 << 7)) regs.OPC = value;
-    if (mask9 & (1 << 6)) regs.TOS = value;
-    if (mask9 & (1 << 5)) regs.CPP = value;
-    if (mask9 & (1 << 4)) regs.LV  = value;
-    if (mask9 & (1 << 3)) regs.SP  = value;
-    if (mask9 & (1 << 2)) regs.PC  = value;
-    if (mask9 & (1 << 1)) regs.MDR = value;
-    if (mask9 & (1 << 0)) regs.MAR = value;
-}
-
-/* -------------------- Nomes do barramento C (para imprimir c_bus) ------ */
-void c_bus_names(int mask9, char *out) {
-    /* order: H, OPC, TOS, CPP, LV, SP, PC, MDR, MAR */
-    int first = 1;
-    out[0] = '\0';
-    if (mask9 & (1 << 8)) { strcat(out, "h"); first = 0; }
-    if (mask9 & (1 << 7)) { if (!first) strcat(out, ", "); strcat(out, "opc"); first = 0; }
-    if (mask9 & (1 << 6)) { if (!first) strcat(out, ", "); strcat(out, "tos"); first = 0; }
-    if (mask9 & (1 << 5)) { if (!first) strcat(out, ", "); strcat(out, "cpp"); first = 0; }
-    if (mask9 & (1 << 4)) { if (!first) strcat(out, ", "); strcat(out, "lv"); first = 0; }
-    if (mask9 & (1 << 3)) { if (!first) strcat(out, ", "); strcat(out, "sp"); first = 0; }
-    if (mask9 & (1 << 2)) { if (!first) strcat(out, ", "); strcat(out, "pc"); first = 0; }
-    if (mask9 & (1 << 1)) { if (!first) strcat(out, ", "); strcat(out, "mdr"); first = 0; }
-    if (mask9 & (1 << 0)) { if (!first) strcat(out, ", "); strcat(out, "mar"); first = 0; }
-    if (out[0] == '\0') strcpy(out, "none");
-}
-
-/* -------------------- Dump de registradores no formato binário pedido ----- */
-void dump_regs_bin(FILE *f) {
-    char b[33], b8[9];
-    to_bin32(regs.MAR, b); fprintf(f, "mar = %s\n", b);
-    to_bin32(regs.MDR, b); fprintf(f, "mdr = %s\n", b);
-    to_bin32(regs.PC,  b); fprintf(f, "pc = %s\n", b);
-    to_bin8(regs.MBR, b8); fprintf(f, "mbr = %s\n", b8);
-    to_bin32(regs.SP,  b); fprintf(f, "sp = %s\n", b);
-    to_bin32(regs.LV,  b); fprintf(f, "lv = %s\n", b);
-    to_bin32(regs.CPP, b); fprintf(f, "cpp = %s\n", b);
-    to_bin32(regs.TOS, b); fprintf(f, "tos = %s\n", b);
-    to_bin32(regs.OPC, b); fprintf(f, "opc = %s\n", b);
-    to_bin32(regs.H,   b); fprintf(f, "h = %s\n", b);
-}
-
-/* -------------------- Ler arquivo de registradores no formato textual ----- */
-int load_regs_from_file(const char *fname) {
-    FILE *f = fopen(fname, "r");
-    if (!f) return 0;
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        char *p = line;
-        while (*p && isspace((unsigned char)*p)) ++p;
-        if (*p == '\0') continue;
-        // form: name = bits
-        char name[32];
-        if (sscanf(p, "%31s", name) != 1) continue;
-        // remove trailing '=' or spaces from name if present
-        char *eq = strchr(p, '=');
-        if (!eq) continue;
-        ++eq;
-        while (*eq && isspace((unsigned char)*eq)) ++eq;
-        // eq now points to the binary string
-        if (strncmp(name, "mar", 3) == 0) regs.MAR = parse_bin32(eq);
-        else if (strncmp(name, "mdr", 3) == 0) regs.MDR = parse_bin32(eq);
-        else if (strncmp(name, "pc", 2) == 0)  regs.PC  = parse_bin32(eq);
-        else if (strncmp(name, "mbr", 3) == 0) regs.MBR = parse_bin8(eq);
-        else if (strncmp(name, "sp", 2) == 0)  regs.SP  = parse_bin32(eq);
-        else if (strncmp(name, "lv", 2) == 0)  regs.LV  = parse_bin32(eq);
-        else if (strncmp(name, "cpp", 3) == 0) regs.CPP = parse_bin32(eq);
-        else if (strncmp(name, "tos", 3) == 0) regs.TOS = parse_bin32(eq);
-        else if (strncmp(name, "opc", 3) == 0) regs.OPC = parse_bin32(eq);
-        else if (strncmp(name, "h", 1) == 0)   regs.H   = parse_bin32(eq);
-    }
-    fclose(f);
-    return 1;
-}
-
-/* -------------------- Trim auxiliar -------------------- */
-void trim_trail(char *s) {
-    int l = (int)strlen(s);
-    while (l > 0 && isspace((unsigned char)s[l-1])) s[--l] = '\0';
-}
-
-/* -------------------- MAIN -------------------- */
-int main(void) {
-    const char *regs_file = "registradores_etapa2_tarefa2.txt";
-    const char *prog_file = "programa_etapa2_tarefa2.txt";
-    const char *out_file  = "saida_etapa2_tarefa2.txt";
-
-    if (!load_regs_from_file(regs_file)) {
-        fprintf(stderr, "Erro: nao foi possivel abrir %s\n", regs_file);
-        return 1;
+    if (WRITE && R.MAR < MEM_LINES) {
+        MEM[R.MAR] = R.MDR;
     }
 
-    FILE *fin = fopen(prog_file, "r");
-    FILE *fout = fopen(out_file, "w");
-    if (!fout) {
-        fprintf(stderr, "Erro criando %s\n", out_file);
-        if (fin) fclose(fin);
-        return 1;
-    }
+    FILE*log=fopen(LOG_FILE,"a");if(!log)return 0; 
+    fprintf(log,"Cycle %d\n",cycle_number++); 
+    char ir[32];format_ir_spaced(m,ir);fprintf(log,"ir = %s\n",ir); 
+    fprintf(log,"b = %s\n",get_B_name(Bcode)); 
+    fprintf(log,"c ="); 
+    int f=1; 
+    if(selC&(1<<0)){if(!f)fputc(' ',log);fprintf(log,"mar");f=0;}
+    if(selC&(1<<1)){if(!f)fputc(' ',log);fprintf(log,"mdr");f=0;} 
+    if(selC&(1<<2)){if(!f)fputc(' ',log);fprintf(log,"pc");f=0;} 
+    if(selC&(1<<3)){if(!f)fputc(' ',log);fprintf(log,"sp");f=0;} 
+    if(selC&(1<<4)){if(!f)fputc(' ',log);fprintf(log,"lv");f=0;} 
+    if(selC&(1<<5)){if(!f)fputc(' ',log);fprintf(log,"cpp");f=0;} 
+    if(selC&(1<<6)){if(!f)fputc(' ',log);fprintf(log,"tos");f=0;} 
+    if(selC&(1<<7)){if(!f)fputc(' ',log);fprintf(log,"opc");f=0;} 
+    if(selC&(1<<8)){if(!f)fputc(' ',log);fprintf(log,"h");f=0;} 
+    fprintf(log,"\n\n"); 
+    fprintf(log,"> Registers before instruction\n*******************************\n");dump_regs(log,&before); 
+    fprintf(log,"\n> Registers after instruction\n*******************************\n");dump_regs(log,&R); 
+    fprintf(log,"\n> Memory after instruction\n*******************************\n"); 
+    for(int i=0;i<MEM_LINES;i++) print_bin32(log,MEM[i]); 
+    fprintf(log,"============================================================\n"); 
+    fclose(log);return 1; 
+}
 
-    /* Imprime estado inicial conforme seu exemplo */
-    fprintf(fout, "=====================================================\n");
-    fprintf(fout, "> Initial register states\n");
-    dump_regs_bin(fout);
-    fprintf(fout, "\n=====================================================\n");
-    fprintf(fout, "Start of program\n");
-    fprintf(fout, "=====================================================\n");
+/* carregar registradores */ 
+int load_initial_regs(const char *fname) { 
+    FILE *f=fopen(fname,"r");if(!f)return 0; 
+    char buf[MAX_LINE]; 
+    read_line_trim(f,buf,MAX_LINE);R.MAR=bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.MDR=bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.PC =bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.MBR=bin_to_u8(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.SP =bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.LV =bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.CPP=bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.TOS=bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.OPC=bin32_to_u32(after_equal(buf)); 
+    read_line_trim(f,buf,MAX_LINE);R.H =bin32_to_u32(after_equal(buf)); 
+    fclose(f);return 1; 
+} 
 
-    /* Se não existe arquivo de programa, imprime EOP imediatamente */
-    if (!fin) {
-        fprintf(fout, "Cycle 1\n");
-        fprintf(fout, "No more lines, EOP.\n");
-        fprintf(fout, "=====================================================\n");
-        fclose(fout);
-        return 0;
-    }
+int load_mem(const char*fname){FILE*f=fopen(fname,"r");if(!f)return 0; char buf[MAX_LINE];int i=0; while(i<MEM_LINES&&read_line_trim(f,buf,MAX_LINE)){if(strlen(buf)==0)continue;MEM[i++]=bin32_to_u32(buf);} for(;i<MEM_LINES;i++)MEM[i]=0;fclose(f);return 1;} 
 
-    char line[256];
-    int cycle = 0;
-    while (1) {
-        /* lê próxima linha sem descartar ciclo ? queremos igual comportamento do exemplo:
-           ler linha, se eof -> incrementar ciclo e print EOP. */
-        if (!fgets(line, sizeof(line), fin)) {
-            /* EOF */
-            cycle++;
-            fprintf(fout, "Cycle %d\n", cycle);
-            fprintf(fout, "No more lines, EOP.\n");
-            fprintf(fout, "=====================================================\n");
-            break;
-        }
+int run_micro_file(const char*fname){FILE*f=fopen(fname,"r");if(!f)return 0; char buf[MAX_LINE];int ex=0; while(read_line_trim(f,buf,MAX_LINE)){if(strlen(buf)==0)continue; char m[32];int idx=0;for(size_t i=0;i<strlen(buf)&&idx<23;i++)if(buf[i]=='0'||buf[i]=='1')m[idx++]=buf[i]; m[idx]=0;if(idx==23){if(execute_microinstr(m))ex++;}} fclose(f);return ex;} 
 
-        trim_trail(line);
-        if (strlen(line) == 0) continue;
-
-        cycle++;
-        /* IR: 21 bits. Queremos imprimir separado: 8bits 9bits 4bits */
-        char ir8[9], ir9[10], ir4[5];
-        memset(ir8, 0, sizeof(ir8)); memset(ir9, 0, sizeof(ir9)); memset(ir4, 0, sizeof(ir4));
-        // assumir que line tem pelo menos 21 caracteres 0/1; se tiver espaços, ignorar primeiro 21 índices de 0/1
-        char bits[22]; int bi = 0;
-        for (int i = 0; line[i] && bi < 21; ++i) if (line[i] == '0' || line[i] == '1') bits[bi++] = line[i];
-        bits[bi] = '\0';
-        if (bi < 21) {
-            // linha inválida, tratar como terminadora
-            fprintf(fout, "Cycle %d\n", cycle);
-            fprintf(fout, "> Line invalid or too short, EOP.\n");
-            fprintf(fout, "=====================================================\n");
-            break;
-        }
-        strncpy(ir8, bits, 8); ir8[8] = '\0';
-        strncpy(ir9, bits + 8, 9); ir9[9] = '\0';
-        strncpy(ir4, bits + 17, 4); ir4[4] = '\0';
-
-        fprintf(fout, "Cycle %d\n", cycle);
-        fprintf(fout, "ir = %s %s %s\n\n", ir8, ir9, ir4);
-
-        /* decodifica controles */
-        // converter as substrings para inteiros
-        int controlULA = 0;
-        for (int i = 0; i < 8; ++i) controlULA = (controlULA << 1) | (ir8[i] - '0');
-        int controlC = 0;
-        for (int i = 0; i < 9; ++i) controlC = (controlC << 1) | (ir9[i] - '0');
-        int controlB = 0;
-        for (int i = 0; i < 4; ++i) controlB = (controlB << 1) | (ir4[i] - '0');
-
-        /* b_bus name + value */
-        char bname[16];
-        uint32_t Bval = get_B_value_and_name(controlB, bname);
-        fprintf(fout, "b_bus = %s\n", bname);
-
-        /* c_bus names */
-        char cnames[256];
-        c_bus_names(controlC, cnames);
-        fprintf(fout, "c_bus = %s\n\n", cnames);
-
-        /* Registers before */
-        fprintf(fout, "> Registers before instruction\n");
-        dump_regs_bin(fout);
-        fprintf(fout, "\n");
-
-        /* Executa ULA: A = H, B = Bval */
-        uint32_t A = regs.H;
-        ULAOut u = ula_exec(A, Bval, (unsigned char)controlULA);
-        if (u.error) {
-            fprintf(fout, "> Error: invalid control signals in ULA.\n\n");
-            fprintf(fout, "> Registers after instruction\n");
-            dump_regs_bin(fout);
-            fprintf(fout, "=====================================================\n");
-            continue;
-        }
-
-        /* Escrever Sd nos registradores habilitados por controlC */
-        write_C_regs(controlC, u.Sd);
-
-        /* Registros depois */
-        fprintf(fout, "> Registers after instruction\n");
-        dump_regs_bin(fout);
-        fprintf(fout, "=====================================================\n");
-    }
-
-    fclose(fin);
-    fclose(fout);
-    return 0;
+int main(){ 
+    if(!load_initial_regs(REGS_FILE)){fprintf(stderr,"Erro regs\n");return 1;} 
+    if(!load_mem(DADOS_FILE)){fprintf(stderr,"Erro mem\n");return 1;} 
+    FILE*log=fopen(LOG_FILE,"w"); 
+    fprintf(log,"============================================================\n"); 
+    fprintf(log,"Initial memory state\n*******************************\n"); 
+    for(int i=0;i<MEM_LINES;i++)print_bin32(log,MEM[i]); 
+    fprintf(log,"*******************************\nInitial register state\n*******************************\n"); 
+    dump_regs(log,&R); 
+    fprintf(log,"============================================================\nStart of Program\n============================================================\n"); 
+    fclose(log); 
+    int ex=run_micro_file(MICRO_FILE);if(!ex)ex=run_micro_file(MICRO_FILE_ALT); 
+    log=fopen(LOG_FILE,"a");fprintf(log,"Cycle %d\n",cycle_number);fprintf(log,"No more lines, EOP.\n");fclose(log); 
+    return 0; 
 }
