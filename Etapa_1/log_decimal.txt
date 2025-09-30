@@ -1,0 +1,644 @@
+============================================================
+Initial memory state (Decimal)
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+*******************************
+Initial register state (Decimal)
+*******************************
+mar = 4
+mdr = 0
+pc = 0
+mbr = 0
+sp = 4
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+============================================================
+Start of Program
+============================================================
+Executando: DUP
+Cycle 1
+ir = 00111101 000001001 00 0100
+b = sp
+c = MAR, SP
+
+> Registers before instruction
+*******************************
+mar = 4
+mdr = 0
+pc = 0
+mbr = 0
+sp = 4
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Registers after instruction
+*******************************
+mar = 5
+mdr = 0
+pc = 0
+mbr = 0
+sp = 5
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 2
+ir = 00101000 000000010 10 0111
+b = tos
+c = MDR
+
+> Registers before instruction
+*******************************
+mar = 5
+mdr = 0
+pc = 0
+mbr = 0
+sp = 5
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Registers after instruction
+*******************************
+mar = 5
+mdr = 0
+pc = 0
+mbr = 0
+sp = 5
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Executando: DUP
+Cycle 3
+ir = 00111101 000001001 00 0100
+b = sp
+c = MAR, SP
+
+> Registers before instruction
+*******************************
+mar = 5
+mdr = 0
+pc = 1
+mbr = 0
+sp = 5
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Registers after instruction
+*******************************
+mar = 6
+mdr = 0
+pc = 1
+mbr = 0
+sp = 6
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 4
+ir = 00101000 000000010 10 0111
+b = tos
+c = MDR
+
+> Registers before instruction
+*******************************
+mar = 6
+mdr = 0
+pc = 1
+mbr = 0
+sp = 6
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Registers after instruction
+*******************************
+mar = 6
+mdr = 0
+pc = 1
+mbr = 0
+sp = 6
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Executando: BIPUSH 10011001
+Cycle 5
+ir = 00111101 000001001 00 0100
+b = sp
+c = MAR, SP
+
+> Registers before instruction
+*******************************
+mar = 6
+mdr = 0
+pc = 2
+mbr = 0
+sp = 6
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Registers after instruction
+*******************************
+mar = 7
+mdr = 0
+pc = 2
+mbr = 0
+sp = 7
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 0
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 6
+(Fetch byte for BIPUSH)
+
+Cycle 7
+ir = 00101000 001000010 10 0000
+b = mdr
+c = MDR, TOS
+
+> Registers before instruction
+*******************************
+mar = 7
+mdr = 0
+pc = 2
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 8
+opc = 0
+h = 153
+
+> Registers after instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 2
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 153
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Executando: ILOAD 2
+Cycle 8
+ir = 00010100 100000000 00 0101
+b = lv
+c = H
+
+> Registers before instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 153
+
+> Registers after instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 1
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 9
+ir = 00111001 100000000 00 0000
+b = mdr
+c = H
+
+> Registers before instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 1
+
+> Registers after instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 2
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 10
+ir = 00111001 100000000 00 0000
+b = mdr
+c = H
+
+> Registers before instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 2
+
+> Registers after instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 11
+ir = 00101000 000000001 01 0000
+b = mdr
+c = MAR
+
+> Registers before instruction
+*******************************
+mar = 7
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Registers after instruction
+*******************************
+mar = 3
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 12
+ir = 00111101 000001001 00 0100
+b = sp
+c = MAR, SP
+
+> Registers before instruction
+*******************************
+mar = 3
+mdr = 153
+pc = 3
+mbr = 153
+sp = 7
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Registers after instruction
+*******************************
+mar = 11
+mdr = 153
+pc = 3
+mbr = 153
+sp = 11
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+0
+0
+0
+0
+0
+============================================================
+Cycle 13
+ir = 00010100 001000010 10 0000
+b = mdr
+c = MDR, TOS
+
+> Registers before instruction
+*******************************
+mar = 11
+mdr = 153
+pc = 3
+mbr = 153
+sp = 11
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Registers after instruction
+*******************************
+mar = 11
+mdr = 153
+pc = 3
+mbr = 153
+sp = 11
+lv = 1
+cpp = 0
+tos = 153
+opc = 0
+h = 3
+
+> Memory after instruction
+*******************************
+0
+1
+2
+4
+8
+0
+0
+153
+0
+0
+0
+153
+0
+0
+0
+0
+============================================================
+No more lines, EOP.
+Final PC = 4

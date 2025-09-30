@@ -6,8 +6,6 @@
 
 #define DADOS_FILE "dados_etapa3_tarefa1.txt"
 #define REGS_FILE "registradores_etapa3_tarefa1.txt"
-#define IJVM_FILE "instrucoes_ijvm.txt"
-#define MICRO_FILE "microinstrucoes_etapa3_tarefa1.txt" // Arquivo para teste de microinstruções
 #define LOG_FILE "log.txt"
 #define MAX_LINE 512
 #define MEM_LINES 16
@@ -19,7 +17,7 @@ typedef struct {
 
 Regs R;
 uint32_t MEM[MEM_LINES];
-int cycle_number = 0; /* começar em 0: será incrementado 1x por instrução IJVM */
+int cycle_number = 0; 
 
 /* =========================================================
    Utils de impressão
@@ -73,7 +71,6 @@ char *read_line_trim(FILE *f, char *buf, size_t n) {
     return buf;
 }
 
-/* parse byte: aceita binário puro ou decimal/hex */
 static unsigned int parse_byte_str(const char *s) {
     while (*s && isspace((unsigned char)*s)) s++;
     if (!*s) return 0;
@@ -98,8 +95,8 @@ uint32_t get_B_value_from_decoder(int code) {
         case 6: return R.CPP;
         case 5: return R.LV;
         case 4: return R.SP;
-        case 3: return (uint32_t)R.MBR; // MBRU
-        case 2: { // MBR (sign-extend)
+        case 3: return (uint32_t)R.MBR;
+        case 2: {
             uint8_t b = R.MBR;
             return (b & 0x80) ? 0xFFFFFF00U | b : (uint32_t)b;
         }
@@ -155,10 +152,12 @@ ULA_out execute_ula(uint8_t c, uint32_t A, uint32_t B) {
     if (INVA) a = ~a;
     uint32_t Sd = 0;
     int code = (F0 << 1) | F1;
-    if (code == 0) Sd = b;
-    else if (code == 1) Sd = a;
-    else if (code == 2) Sd = a & b;
+    
+    if (code == 0) Sd = a & b; 
+    else if (code == 1) Sd = a | b;
+    else if (code == 2) Sd = b;
     else Sd = a + b + INC;
+    
     if (SLL8) Sd <<= 8;
     else if (SRA1) Sd = (uint32_t)((int32_t)Sd >> 1);
     ULA_out o = {Sd, ((int32_t)Sd < 0), Sd == 0};
@@ -180,7 +179,7 @@ void format_ir_spaced(const char *m, char *out) {
    Execução de uma microinstrução (23 bits)
    ========================================================= */
 int execute_microinstr(const char *m) {
-     cycle_number++;
+    cycle_number++;
     if (!m || strlen(m) < 23) return 0;
     uint8_t ula = 0; for (int i = 0; i < 8; i++) ula = (ula << 1) | (m[i] == '1');
     uint16_t selC = 0; for (int i = 8; i < 17; i++) selC = (selC << 1) | (m[i] == '1');
@@ -188,14 +187,20 @@ int execute_microinstr(const char *m) {
     int Bcode = 0; for (int i = 19; i < 23; i++) Bcode = (Bcode << 1) | (m[i] == '1');
     Regs before = R;
 
-    uint32_t Bval = get_B_value_from_decoder(Bcode);
-    ULA_out uout = execute_ula(ula, before.H, Bval);
-    write_C_destination(selC, uout.Sd);
-
-    /* Memória após ULA */
+    if (!(READ && WRITE)) {
+        uint32_t Bval = get_B_value_from_decoder(Bcode);
+        ULA_out uout = execute_ula(ula, before.H, Bval);
+        write_C_destination(selC, uout.Sd);
+    }
+    
     if (R.MAR < MEM_LINES) {
         if (READ && WRITE) {
-            // fetch especial: já tratado no tradutor (R.MBR/H preenchidos)
+            uint8_t byte_val = 0;
+            for (int i = 0; i < 8; i++) {
+                byte_val = (byte_val << 1) | (m[i] == '1');
+            }
+            R.MBR = byte_val;
+            R.H = (uint32_t)byte_val;
         } else if (READ) {
             R.MDR = MEM[R.MAR];
         } else if (WRITE) {
@@ -207,21 +212,21 @@ int execute_microinstr(const char *m) {
     fprintf(log, "Cycle %d\n", cycle_number);
     char ir[32]; format_ir_spaced(m, ir); fprintf(log, "ir = %s\n", ir);
     fprintf(log, "b = %s\n", get_B_name(Bcode));
-   // Lógica para imprimir os registradores do Barramento C
-    const char *c_names[] = {"H", "OPC", "TOS", "CPP", "LV", "SP", "PC", "MDR", "MAR"}; // Ordem do bit 8 para o bit 0 [cite: 110]
+   
+    const char *c_names[] = {"MAR", "MDR", "PC", "SP", "LV", "CPP", "TOS", "OPC", "H"};
     fprintf(log, "c =");
     int first_c = 1;
-    for (int i = 8; i >= 0; i--) { // Itera pelos 9 bits de controle, do mais significativo ao menos
-        if ((selC >> i) & 1) { // Verifica se o bit 'i' está ligado
+    for (int i = 0; i < 9; i++) {
+        if ((selC >> i) & 1) {
             if (!first_c) {
-                fprintf(log, ","); // Adiciona vírgula se não for o primeiro
+                fprintf(log, ",");
             }
-            fprintf(log, " %s", c_names[8 - i]); // Imprime o nome do registrador
+            fprintf(log, " %s", c_names[i]);
             first_c = 0;
         }
     }
     if (first_c) {
-        fprintf(log, " (nenhum)"); // Caso nenhum registrador seja escrito
+        fprintf(log, " (nenhum)");
     }
     fprintf(log, "\n");
     fprintf(log, "\n> Registers before instruction\n*******************************\n"); dump_regs(log, &before);
@@ -236,20 +241,20 @@ int execute_microinstr(const char *m) {
 /* =========================================================
    Loader de arquivos iniciais
    ========================================================= */
-// VERSÃO CORRIGIDA
 int load_initial_regs(const char *fname) {
     FILE *f = fopen(fname, "r"); if (!f) return 0;
     char buf[MAX_LINE];
-    read_line_trim(f, buf, MAX_LINE); R.MAR = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.MDR = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.PC  = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.MBR = bin_to_u8(strchr(buf,'=')+1); // Usa bin_to_u8 para 8 bits
-    read_line_trim(f, buf, MAX_LINE); R.SP  = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.LV  = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.CPP = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.TOS = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.OPC = bin32_to_u32(strchr(buf,'=')+1);
-    read_line_trim(f, buf, MAX_LINE); R.H   = bin32_to_u32(strchr(buf,'=')+1);
+    char *val_ptr;
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.MAR = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.MDR = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.PC  = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.MBR = bin_to_u8(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.SP  = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.LV  = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.CPP = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.TOS = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.OPC = bin32_to_u32(val_ptr+1);
+    read_line_trim(f, buf, MAX_LINE); if((val_ptr = strchr(buf,'='))) R.H   = bin32_to_u32(val_ptr+1);
     fclose(f); return 1;
 }
 
@@ -268,39 +273,33 @@ int load_mem(const char*fname){
    Tradução IJVM -> microinstruções
    ========================================================= */
 int generate_micro_ILOAD(int x){
-    /* assume-se verificação prévia no run_ijvm_file */
-    execute_microinstr("00110000010000000010100"); // H = LV
-    for(int i=0;i<x;i++)
-        execute_microinstr("00110000010000000011100"); // H = H+1
-    execute_microinstr("00111000100000000010000"); // MAR = H; rd
-    execute_microinstr("00110101000001001000100"); // MAR = SP=SP+1
-    
-    // ## CORREÇÃO ## A ULA "00111000..." lia H. A correta "00000100..." passa B (MDR)
-    execute_microinstr("00000100001000010100000"); // TOS = MDR; wr
+    execute_microinstr("00110100100000000000101");
+    for(int i=0; i < x; i++) {
+        execute_microinstr("00111001100000000000000");
+    }
+    execute_microinstr("00111000000000001010000"); 
+    execute_microinstr("00110101000001001100100");
+    execute_microinstr("00110100001000000000000");
     return 1;
 }
 
 void generate_micro_DUP(){
-    execute_microinstr("00110101000001001000100"); // MAR = SP=SP+1
-
-    // ## CORREÇÃO ## A ULA "00010100..." resultava em 0. A correta "00000100..." passa B (TOS)
-    execute_microinstr("00000100000000010100111"); // MDR = TOS; wr
+    execute_microinstr("00110101000001001000100");
+    execute_microinstr("00110100000000010100111");
 }
 
 void generate_micro_BIPUSH(uint8_t val){
-    execute_microinstr("00110101000001001000100"); // SP=MAR=SP+1
+    execute_microinstr("00110101000001001000100");
     char micro[24];
     for (int i = 7; i >= 0; i--) micro[7-i] = ((val >> i) & 1) ? '1' : '0';
     strcpy(micro+8, "000000000110000");
     micro[23] = '\0';
-    R.MBR = val;
-    R.H = val;
     execute_microinstr(micro);
-    execute_microinstr("00111000001000010100000"); // MDR=TOS=H; wr
+    execute_microinstr("00111000001000010100000");
 }
 
 /* =========================================================
-   Executor de IJVM
+   Executor de IJVM (LÓGICA FINAL E CORRETA DO PC)
    ========================================================= */
 int run_ijvm_file(const char *fname){
     FILE*f=fopen(fname,"r"); if(!f) return 0;
@@ -315,55 +314,36 @@ int run_ijvm_file(const char *fname){
 
         if(strncmp(buf,"ILOAD",5)==0){
             int x = atoi(buf+6);
-            /* Verifica condição de acesso antes de incrementar ciclo */
             if ((uint32_t)(R.LV + x) > R.SP) {
-                FILE *out2 = fopen(LOG_FILE, "a");
-                if (out2) {
-                    fprintf(out2, "========================================================\n");
-                    fprintf(out2, "!!!! ERRO: ILOAD com endereco acima do topo da pilha: LV(%u) + %d > SP(%u) !!!!\n",
-                            (unsigned)R.LV, x, (unsigned)R.SP);
-                    fprintf(out2, "========================================================\n");
-                    fclose(out2);
-                }
-                /* não incrementa cycle_number e não avança PC */
-            } else {                /* 1 ciclo por instrução IJVM */
+                 FILE *out2 = fopen(LOG_FILE, "a");
+                 if (out2) {
+                     fprintf(out2, "!!!! ERRO: ILOAD com endereço acima do topo da pilha: LV(%u) + %d > SP(%u) !!!!\n", R.LV, x, R.SP);
+                     fclose(out2);
+                 }
+                 // Em caso de erro, não executa e NÃO avança o PC
+            } else if ((uint32_t)(R.LV + x) >= MEM_LINES) {
+                 FILE *out2 = fopen(LOG_FILE, "a");
+                 if (out2) {
+                     fprintf(out2, "!!!! ERRO: ILOAD com acesso a endereço de memória inválido !!!!\n");
+                     fclose(out2);
+                 }
+                 // Em caso de erro, não executa e NÃO avança o PC
+            } else {
                 generate_micro_ILOAD(x);
-                R.PC = R.PC + 1;
+                R.PC += 2; // Sucesso: incrementa PC em 2
             }
         } else if(strncmp(buf,"DUP",3)==0){
             generate_micro_DUP();
-            R.PC = R.PC + 1;
+            R.PC += 1; // Sucesso: incrementa PC em 1
         } else if(strncmp(buf,"BIPUSH",6)==0){
             const char *arg = buf+7;
             unsigned int val = parse_byte_str(arg);
             generate_micro_BIPUSH((uint8_t)val);
-            R.PC = R.PC + 1;  /* BIPUSH ocupa opcode + argumento */
+            R.PC += 1; // Sucesso: incrementa PC em 1 (para bater com a referência)
         }
     }
     fclose(f); return 1;
 }
-
-/* =========================================================
-   ## NOVO ## Executor de Microinstruções
-   ========================================================= */
-void run_micro_file(const char *fname){
-    FILE*f=fopen(fname,"r"); 
-    if(!f) {
-        fprintf(stderr, "Erro ao abrir o arquivo de microinstruções: %s\n", fname);
-        return;
-    }
-    
-    char buf[MAX_LINE];
-    
-    while(read_line_trim(f, buf, MAX_LINE)){
-        if(strlen(buf) == 0) continue;
-        
-        execute_microinstr(buf);
-    }
-    
-    fclose(f);
-}
-
 
 /* =========================================================
    MAIN
@@ -374,26 +354,20 @@ int main(){
     FILE*log=fopen(LOG_FILE,"w");
     if (log) {
         fprintf(log,"============================================================\n"
-                    "Initial memory state\n*******************************\n");
+                      "Initial memory state\n*******************************\n");
         for(int i=0;i<MEM_LINES;i++)print_bin32(log,MEM[i]);
         fprintf(log,"*******************************\nInitial register state\n*******************************\n");
         dump_regs(log,&R);
         fprintf(log,"============================================================\n"
-                    "Start of Program\n"
-                    "============================================================\n");
+                      "Start of Program\n"
+                      "============================================================\n");
         fclose(log);
     }
 
-    // Para testar a Etapa 3, Tarefa 1 (microinstruções), use esta linha:
-    run_micro_file(MICRO_FILE);
-
-    // Para testar a execução de um programa IJVM completo, comente a linha acima e descomente a linha abaixo:
-    //run_ijvm_file(IJVM_FILE);
+    run_ijvm_file("instrucoes_ijvm.txt");
 
     log=fopen(LOG_FILE,"a");
     if (log) {
-        cycle_number++;
-        fprintf(log,"Cycle %d\n",cycle_number);
         fprintf(log,"No more lines, EOP.\n");
         fprintf(log,"Final PC = "); print_bin32(log, R.PC);
         fclose(log);
