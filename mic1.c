@@ -20,7 +20,7 @@ uint32_t MEM[MEM_LINES];
 int cycle_number = 0; 
 
 /* =========================================================
-   Utils de impressão
+   Utils de impressï¿½o
    ========================================================= */
 void print_bin32(FILE *log, uint32_t v) {
     for (int i = 31; i >= 0; i--)
@@ -176,7 +176,7 @@ void format_ir_spaced(const char *m, char *out) {
 }
 
 /* =========================================================
-   Execução de uma microinstrução (23 bits)
+   Execuï¿½ï¿½o de uma microinstruï¿½ï¿½o (23 bits)
    ========================================================= */
 int execute_microinstr(const char *m) {
     cycle_number++;
@@ -270,7 +270,7 @@ int load_mem(const char*fname){
 }
 
 /* =========================================================
-   Tradução IJVM -> microinstruções
+   Traduï¿½ï¿½o IJVM -> microinstruï¿½ï¿½es
    ========================================================= */
 int generate_micro_ILOAD(int x){
     execute_microinstr("00110100100000000000101");
@@ -299,7 +299,7 @@ void generate_micro_BIPUSH(uint8_t val){
 }
 
 /* =========================================================
-   Executor de IJVM (LÓGICA FINAL E CORRETA DO PC)
+   Executor de IJVM (Lï¿½GICA FINAL E CORRETA DO PC)
    ========================================================= */
 int run_ijvm_file(const char *fname){
     FILE*f=fopen(fname,"r"); if(!f) return 0;
@@ -317,17 +317,17 @@ int run_ijvm_file(const char *fname){
             if ((uint32_t)(R.LV + x) > R.SP) {
                  FILE *out2 = fopen(LOG_FILE, "a");
                  if (out2) {
-                     fprintf(out2, "!!!! ERRO: ILOAD com endereço acima do topo da pilha: LV(%u) + %d > SP(%u) !!!!\n", R.LV, x, R.SP);
+                     fprintf(out2, "!!!! ERRO: ILOAD com endereï¿½o acima do topo da pilha: LV(%u) + %d > SP(%u) !!!!\n", R.LV, x, R.SP);
                      fclose(out2);
                  }
-                 // Em caso de erro, não executa e NÃO avança o PC
+                 // Em caso de erro, nï¿½o executa e Nï¿½O avanï¿½a o PC
             } else if ((uint32_t)(R.LV + x) >= MEM_LINES) {
                  FILE *out2 = fopen(LOG_FILE, "a");
                  if (out2) {
-                     fprintf(out2, "!!!! ERRO: ILOAD com acesso a endereço de memória inválido !!!!\n");
+                     fprintf(out2, "!!!! ERRO: ILOAD com acesso a endereï¿½o de memï¿½ria invï¿½lido !!!!\n");
                      fclose(out2);
                  }
-                 // Em caso de erro, não executa e NÃO avança o PC
+                 // Em caso de erro, nï¿½o executa e Nï¿½O avanï¿½a o PC
             } else {
                 generate_micro_ILOAD(x);
                 R.PC += 2; // Sucesso: incrementa PC em 2
@@ -339,15 +339,12 @@ int run_ijvm_file(const char *fname){
             const char *arg = buf+7;
             unsigned int val = parse_byte_str(arg);
             generate_micro_BIPUSH((uint8_t)val);
-            R.PC += 1; // Sucesso: incrementa PC em 1 (para bater com a referência)
+            R.PC += 1; // Sucesso: incrementa PC em 1 (para bater com a referï¿½ncia)
         }
     }
     fclose(f); return 1;
 }
 
-/* =========================================================
-   MAIN
-   ========================================================= */
 int main(){
     if(!load_initial_regs(REGS_FILE)){fprintf(stderr,"Erro regs\n");return 1;}
     if(!load_mem(DADOS_FILE)){fprintf(stderr,"Erro mem\n");return 1;}
